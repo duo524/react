@@ -15,86 +15,111 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@radix-ui/react-collapsible";
-import { useSprings, animated, config } from "@react-spring/web";
+import {
+  SortEvent,
+  SortEventWithTag,
+  SortableContainer,
+  SortableElement,
+} from "react-sortable-hoc";
+import { arrayMoveImmutable } from "array-move";
+import { type Item } from "./types";
 import { ChevronDown } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import { useDrag } from "@use-gesture/react";
-import move from "lodash-move";
-import clamp from "lodash.clamp";
+import { useState } from "react";
+
+const elementWrapped = ({ value }: { value: Item }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible defaultOpen className="group/collapsible" open={open}>
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton asChild>
+            <a href="#">
+              <span>{value.title}</span>
+              <ChevronDown
+                className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(!open);
+                }}
+              />
+            </a>
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <SidebarMenuSub>
+          {value.children.map((child, index) => {
+            return (
+              <CollapsibleContent key={index}>
+                <SidebarMenuSubItem>
+                  <SidebarMenuButton asChild>
+                    <a href="#">{child}</a>
+                  </SidebarMenuButton>
+                </SidebarMenuSubItem>
+              </CollapsibleContent>
+            );
+          })}
+        </SidebarMenuSub>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+};
+const containerWrapped = ({ items }: { items: Item[] }) => {
+  return (
+    <div>
+      {items.map((value, i) => (
+        <SortableItem key={`item-${value.id}`} index={i} value={value} />
+      ))}
+    </div>
+  );
+};
+
+const SortableItem = SortableElement<{ value: Item }>(elementWrapped);
+
+const SortableList = SortableContainer<{ items: Item[] }>(containerWrapped, {
+  withRef: true,
+});
 
 const App = () => {
-  const items = useMemo(() => {
-    return [
-      {
-        id: 1,
-        title: "mail",
-        children: [1, 2, 3, 4],
-      },
-      {
-        id: 2,
-        title: "chat",
-        children: [1, 2, 3, 4],
-      },
-      {
-        id: 3,
-        title: "todo",
-        children: [1, 2, 3, 4],
-      },
-      {
-        id: 4,
-        title: "all",
-        children: [1, 2, 3, 4],
-      },
-    ];
-  }, []);
-
-  const [openStateList, setOpenStateList] = useState(items.map(() => false));
-  const fn =
-    (order: number[], active = false, originalIndex = 0, curIndex = 0, y = 0) =>
-    (index: number) => {
-      const curOpenStateList = order
-        .slice(0, order.indexOf(index))
-        .map((i) => openStateList[i])
-        .filter((i) => i);
-
-      const num = curOpenStateList.length * 36 * 4;
-      return active && index === originalIndex
-        ? {
-            y: num + curIndex * 36 + y,
-            scale: 1.1,
-            zIndex: 1,
-            shadow: 15,
-            immediate: (key: string) => key === "zIndex",
-            config: (key: string) =>
-              key === "y" ? config.stiff : config.default,
-          }
-        : {
-            y: order.indexOf(index) * 36 + num,
-            scale: 1,
-            zIndex: 0,
-            shadow: 1,
-            immediate: false,
-          };
-    };
-
-  const order = useRef(items.map((_, index) => index));
-  const [springs, api] = useSprings(items.length, fn(order.current), [
-    openStateList,
+  const [items, setItems] = useState<Item[]>([
+    {
+      id: 1,
+      title: "mail",
+      children: [1, 2, 3, 4],
+      isOpen: true,
+    },
+    {
+      id: 2,
+      title: "chat",
+      children: [1, 2, 3, 4],
+      isOpen: false,
+    },
+    {
+      id: 3,
+      title: "todo",
+      children: [1, 2, 3, 4],
+      isOpen: false,
+    },
+    {
+      id: 4,
+      title: "all",
+      children: [1, 2, 3, 4],
+      isOpen: false,
+    },
   ]);
 
-  const bind = useDrag(({ args: [originalIndex], active, movement: [, y] }) => {
-    const curIndex = order.current.indexOf(originalIndex);
-    const curRow = clamp(
-      Math.round((curIndex * 36 + y) / 36),
-      0,
-      items.length - 1
-    );
-    const newOrder = move(order.current, curIndex, curRow);
-    api.start(fn(newOrder, active, originalIndex, curIndex, y));
-    if (!active) {
-      order.current = newOrder;
-    }
-  });
+  const onSortEnd = ({
+    oldIndex,
+    newIndex,
+  }: {
+    oldIndex: number;
+    newIndex: number;
+  }) => {
+    setItems(arrayMoveImmutable(items, oldIndex, newIndex));
+  };
+  const shouldCancelStart = (e: SortEvent | SortEventWithTag) => {
+    const event = e as SortEventWithTag;
+    return event.target.tagName === "svg";
+  };
 
   return (
     <SidebarProvider>
@@ -106,62 +131,12 @@ const App = () => {
             </SidebarGroupLabel>
           </SidebarGroup>
           <SidebarMenu>
-            <div className="relative">
-              {springs.map(({ zIndex, shadow, y, scale }, i) => (
-                <animated.div
-                  {...bind(i)}
-                  key={i}
-                  style={{
-                    zIndex,
-                    boxShadow: shadow.to(
-                      (s) => `rgba(0, 0, 0, 0.15) 0px ${s}px ${2 * s}px 0px`
-                    ),
-                    y,
-                    scale,
-                  }}
-                  className="absolute  w-full touch-none pl-[32px]"
-                >
-                  <Collapsible
-                    defaultOpen
-                    className="group/collapsible"
-                    open={openStateList[i]}
-                  >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton asChild>
-                          <a
-                            href="#"
-                            onClick={() =>
-                              setOpenStateList(
-                                openStateList.map((item, y) =>
-                                  y === i ? !item : item
-                                )
-                              )
-                            }
-                          >
-                            <span>{items[i].title}</span>
-                            <ChevronDown className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
-                          </a>
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <SidebarMenuSub>
-                        {items[i].children.map((child, index) => {
-                          return (
-                            <CollapsibleContent key={index}>
-                              <SidebarMenuSubItem>
-                                <SidebarMenuButton asChild>
-                                  <a href="#">{child}</a>
-                                </SidebarMenuButton>
-                              </SidebarMenuSubItem>
-                            </CollapsibleContent>
-                          );
-                        })}
-                      </SidebarMenuSub>
-                    </SidebarMenuItem>
-                  </Collapsible>
-                </animated.div>
-              ))}
-            </div>
+            <SortableList
+              helperClass="z-10"
+              items={items}
+              onSortEnd={onSortEnd}
+              shouldCancelStart={shouldCancelStart}
+            />
           </SidebarMenu>
         </SidebarContent>
       </Sidebar>
